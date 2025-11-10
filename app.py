@@ -5,12 +5,14 @@ from sklearn.ensemble import RandomForestRegressor
 from datetime import datetime
 import json
 import ast
+import os
 
 app = Flask(__name__)
 
 def load_and_process_data():
-    df = pd.read_csv('NBA.csv')
-    df['Date'] = pd.to_datetime(df['Date'], format='%d.%m.%Y %H:%M')
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'NBA.csv')
+    df = pd.read_csv(csv_path)
+    df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
     
     # Replace NaN values with 0 for numeric columns
     numeric_columns = df.select_dtypes(include=[np.number]).columns
@@ -57,15 +59,20 @@ def get_player_stats(df, player_name):
                 home_players = home_data
             
             for player in home_players:
+                if isinstance(player, (list, tuple)) and len(player) > 0:
+                    # Print all player names and corresponding minutes in this home_players list
+                    print(f"DEBUG: home_team {row['Home']}, opponent {row['Away']}, player_list={repr(player[0])}, minutes={repr(player[1]) if len(player)>1 else 'N/A'}")
                 if isinstance(player, (list, tuple)) and len(player) > 0 and player[0] == player_name:
+                    print(f"MATCH FOUND for {player_name} in home {row['Home']} vs {row['Away']}: player={player}")
+                    minutes_val = safe_int(player[1]) if len(player) > 1 else 0
                     player_stats.append({
                         'date': row['Date'].strftime('%Y-%m-%d'),
                         'team': row['Home'],
                         'opponent': row['Away'],
-                        'points': safe_int(player[1]),
-                        'rebounds': safe_int(player[2]),
-                        'assists': safe_int(player[3]),
-                        'threes': safe_int(player[4])
+                        'minutes': minutes_val,
+                        'points': safe_int(player[2]) if len(player) > 2 else 0,
+                        'rebounds': safe_int(player[3]) if len(player) > 3 else 0,
+                        'assists': safe_int(player[4]) if len(player) > 4 else 0
                     })
             
             # Process away team players
@@ -81,15 +88,19 @@ def get_player_stats(df, player_name):
                 away_players = away_data
             
             for player in away_players:
+                if isinstance(player, (list, tuple)) and len(player) > 0:
+                    print(f"DEBUG: away_team {row['Away']}, opponent {row['Home']}, player_list={repr(player[0])}, minutes={repr(player[1]) if len(player)>1 else 'N/A'}")
                 if isinstance(player, (list, tuple)) and len(player) > 0 and player[0] == player_name:
+                    print(f"MATCH FOUND for {player_name} in away {row['Away']} vs {row['Home']}: player={player}")
+                    minutes_val = safe_int(player[1]) if len(player) > 1 else 0
                     player_stats.append({
                         'date': row['Date'].strftime('%Y-%m-%d'),
                         'team': row['Away'],
                         'opponent': row['Home'],
-                        'points': safe_int(player[1]),
-                        'rebounds': safe_int(player[2]),
-                        'assists': safe_int(player[3]),
-                        'threes': safe_int(player[4])
+                        'minutes': minutes_val,
+                        'points': safe_int(player[2]) if len(player) > 2 else 0,
+                        'rebounds': safe_int(player[3]) if len(player) > 3 else 0,
+                        'assists': safe_int(player[4]) if len(player) > 4 else 0
                     })
         
         except Exception as e:
@@ -355,32 +366,35 @@ def player_analysis():
         if player_stats.empty:
             return jsonify({'error': 'No data found for player'}), 404
         
-        # Get the last n games
-        player_stats = player_stats.head(n_games)
+        # Sort by date descending (most recent first) and get the last n games
+        player_stats['date'] = pd.to_datetime(player_stats['date'])
+        player_stats = player_stats.sort_values('date', ascending=False).head(n_games)
         
         if len(player_stats) == 0:
             return jsonify({'error': 'No recent games found for player'}), 404
         
         # Calculate averages using safe conversion
         averages = {
+            'minutes': float(round(safe_float(player_stats['minutes'].mean()), 1)),
             'points': float(round(safe_float(player_stats['points'].mean()), 1)),
             'rebounds': float(round(safe_float(player_stats['rebounds'].mean()), 1)),
-            'assists': float(round(safe_float(player_stats['assists'].mean()), 1)),
-            'threes': float(round(safe_float(player_stats['threes'].mean()), 1))
+            'assists': float(round(safe_float(player_stats['assists'].mean()), 1))
         }
         
         # Prepare stats for chart
         stats = []
         for _, row in player_stats.iterrows():
             try:
+                # Convert date back to string format if it's a datetime object
+                date_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
                 stats.append({
-                    'date': row['date'],
+                    'date': date_str,
                     'team': row['team'],
                     'opponent': row['opponent'],
+                    'minutes': float(safe_float(row['minutes'])),
                     'points': float(safe_float(row['points'])),
                     'rebounds': float(safe_float(row['rebounds'])),
-                    'assists': float(safe_float(row['assists'])),
-                    'threes': float(safe_float(row['threes']))
+                    'assists': float(safe_float(row['assists']))
                 })
             except Exception as e:
                 print(f"Error processing row: {row}")
@@ -389,7 +403,7 @@ def player_analysis():
         
         # Get predictions
         predictions = {}
-        for stat_type in ['points', 'rebounds', 'assists', 'threes']:
+        for stat_type in ['minutes', 'points', 'rebounds', 'assists']:
             try:
                 # Convert any '-' to 0 in the stats before prediction
                 player_stats[stat_type] = player_stats[stat_type].apply(safe_float)
@@ -486,12 +500,11 @@ def team_rankings():
                     if isinstance(player, (list, tuple)) and len(player) > 0:
                         name = str(player[0])
                         if name not in player_stats:
-                            player_stats[name] = {'points': [], 'rebounds': [], 'assists': [], 'threes': []}
+                            player_stats[name] = {'points': [], 'rebounds': [], 'assists': []}
                         
-                        player_stats[name]['points'].append(safe_int(player[1]))
-                        player_stats[name]['rebounds'].append(safe_int(player[2]))
-                        player_stats[name]['assists'].append(safe_int(player[3]))
-                        player_stats[name]['threes'].append(safe_int(player[4]))
+                        player_stats[name]['points'].append(safe_int(player[2]) if len(player) > 2 else 0)
+                        player_stats[name]['rebounds'].append(safe_int(player[3]) if len(player) > 3 else 0)
+                        player_stats[name]['assists'].append(safe_int(player[4]) if len(player) > 4 else 0)
             
             except Exception as e:
                 print(f"Error processing game: {str(e)}")
@@ -502,12 +515,11 @@ def team_rankings():
         rankings = {
             'points': [],
             'rebounds': [],
-            'assists': [],
-            'threes': []
+            'assists': []
         }
         
         for player, stats in player_stats.items():
-            for stat_type in ['points', 'rebounds', 'assists', 'threes']:
+            for stat_type in ['points', 'rebounds', 'assists']:
                 if stats[stat_type]:  # Only calculate if we have data
                     values = [x for x in stats[stat_type] if not np.isnan(x)]  # Filter out NaN values
                     if values:  # Only calculate if we have non-NaN values
@@ -534,5 +546,58 @@ def team_rankings():
             'request_data': data if 'data' in locals() else None
         }), 500
 
+@app.route('/team_top_players', methods=['POST'])
+def team_top_players():
+    try:
+        data = request.json
+        team = data.get('team')
+        n_games = safe_int(data.get('n_games', 5))
+        
+        if not team:
+            return jsonify({'error': 'Team name is required'}), 400
+        if n_games <= 0:
+            n_games = 5
+        
+        df = load_and_process_data()
+        team_games = get_team_games(df, team, n_games)
+        
+        totals = {}
+        for _, game in team_games.iterrows():
+            try:
+                pdata = game['HomeD'] if game['Home'] == team else game['AwayD']
+                if isinstance(pdata, str):
+                    try:
+                        players = ast.literal_eval(pdata)
+                    except (ValueError, SyntaxError):
+                        continue
+                else:
+                    players = pdata
+                for player in players:
+                    if isinstance(player, (list, tuple)) and len(player) >= 5:
+                        name = str(player[0])
+                        pts = safe_int(player[2]) if len(player) > 2 else 0
+                        reb = safe_int(player[3]) if len(player) > 3 else 0
+                        asts = safe_int(player[4]) if len(player) > 4 else 0
+                        if name not in totals:
+                            totals[name] = {'player': name, 'points': 0, 'rebounds': 0, 'assists': 0, 'total': 0}
+                        totals[name]['points'] += pts
+                        totals[name]['rebounds'] += reb
+                        totals[name]['assists'] += asts
+                        totals[name]['total'] += pts + reb + asts
+            except Exception:
+                continue
+        
+        ranking = sorted(totals.values(), key=lambda x: x['total'], reverse=True)[:5]
+        return jsonify({'team': team, 'top_players': ranking})
+    except Exception as e:
+        error_msg = f"Error in team_top_players: {str(e)}"
+        print(error_msg)
+        if 'data' in locals():
+            print(f"Request data: {data}")
+        return jsonify({
+            'error': error_msg,
+            'request_data': data if 'data' in locals() else None
+        }), 500
+
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)

@@ -59,6 +59,20 @@
             </button>
             <div id="teamComparison" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         </div>
+        <div id="top-players-section" class="card p-6 mb-8 hidden">
+            <h2 class="text-2xl font-semibold mb-1">Top Performers</h2>
+            <p class="text-sm text-gray-500 mb-4">Based on last <span id="top-num-games">5</span> games (PTS+REB+AST)</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold mb-2" id="top-team1-title">Team 1 Top 5</h3>
+                    <ol id="top-team1-list" class="space-y-2 list-decimal list-inside"></ol>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-2" id="top-team2-title">Team 2 Top 5</h3>
+                    <ol id="top-team2-list" class="space-y-2 list-decimal list-inside"></ol>
+                </div>
+            </div>
+        </div>
 
         <!-- Player Analysis Section -->
         <div class="bg-white p-6 rounded-lg shadow-lg">
@@ -130,7 +144,6 @@
                 alert('Please select both teams');
                 return;
             }
-
             console.log(`Comparing teams: ${team1} vs ${team2}, numGames: ${numGames} (type: ${typeof numGames})`);
 
             try {
@@ -142,12 +155,12 @@
                     body: JSON.stringify({
                         team1: team1,
                         team2: team2,
-                        n_games: numGames // Send as number
+                        n_games: numGames
                     })
                 });
 
                 const data = await response.json();
-                
+
                 if (!response.ok) {
                     let errorMessage = data.error || 'Failed to compare teams';
                     if (data.request_data) {
@@ -155,12 +168,15 @@
                     }
                     throw new Error(errorMessage);
                 }
-                
+
                 // Update team comparison charts
                 updateTeamComparisonCharts(data);
-                
+
                 // Update player dropdowns with the selected teams' players
                 updatePlayerDropdowns(team1, team2);
+
+                // Update Top Performers section
+                updateTopPlayersForBoth(team1, team2, numGames);
             } catch (error) {
                 console.error('Error:', error);
                 document.getElementById('teamComparison').innerHTML = `
@@ -170,6 +186,136 @@
                     </div>
                 `;
             }
+        }
+
+        // Display team comparison
+        function updateTeamComparisonCharts(data) {
+            const container = document.getElementById('teamComparison');
+            container.innerHTML = `
+                <div class="card p-4">
+                    <h3 class="text-lg font-semibold mb-4">${document.getElementById('team1-select').value}</h3>
+                    <div class="space-y-2">
+                        ${data.team1_games.map(game => `
+                            <div class="p-2 bg-gray-50 rounded">
+                                <p>${game.Date}</p>
+                                <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="card p-4">
+                    <h3 class="text-lg font-semibold mb-4">${document.getElementById('team2-select').value}</h3>
+                    <div class="space-y-2">
+                        ${data.team2_games.map(game => `
+                            <div class="p-2 bg-gray-50 rounded">
+                                <p>${game.Date}</p>
+                                <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function updatePlayerDropdowns(team1, team2) {
+            // Update team titles
+            document.getElementById('team1-name').textContent = `${team1} Players`;
+            document.getElementById('team2-name').textContent = `${team2} Players`;
+            
+            // Fetch players for both teams
+            fetch(`/get_team_players/${team1}`)
+                .then(response => response.json())
+                .then(data => {
+                    const player1Select = document.getElementById('player1-select');
+                    player1Select.innerHTML = '<option value="">Select a player</option>';
+                    data.forEach(player => {
+                        const option = document.createElement('option');
+                        option.value = player;
+                        option.textContent = player;
+                        player1Select.appendChild(option);
+                    });
+                });
+
+            fetch(`/get_team_players/${team2}`)
+                .then(response => response.json())
+                .then(data => {
+                    const player2Select = document.getElementById('player2-select');
+                    player2Select.innerHTML = '<option value="">Select a player</option>';
+                    data.forEach(player => {
+                        const option = document.createElement('option');
+                        option.value = player;
+                        option.textContent = player;
+                        player2Select.appendChild(option);
+                    });
+                });
+        }
+
+        // Load and render Top Performers for both teams
+        async function updateTopPlayersForBoth(team1, team2, nGames) {
+            const section = document.getElementById('top-players-section');
+            const gamesSpan = document.getElementById('top-num-games');
+            const team1Title = document.getElementById('top-team1-title');
+            const team2Title = document.getElementById('top-team2-title');
+            const list1 = document.getElementById('top-team1-list');
+            const list2 = document.getElementById('top-team2-list');
+
+            gamesSpan.textContent = nGames;
+            team1Title.textContent = `${team1} Top 5`;
+            team2Title.textContent = `${team2} Top 5`;
+            section.classList.remove('hidden');
+
+            // Clear lists while loading
+            list1.innerHTML = '<li class="text-gray-500">Loading...</li>';
+            list2.innerHTML = '<li class="text-gray-500">Loading...</li>';
+
+            try {
+                const [res1, res2] = await Promise.all([
+                    fetch('/team_top_players', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ team: team1, n_games: nGames })
+                    }),
+                    fetch('/team_top_players', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ team: team2, n_games: nGames })
+                    })
+                ]);
+
+                const data1 = await res1.json();
+                const data2 = await res2.json();
+
+                if (!res1.ok) throw new Error(data1.error || 'Failed to load top players for Team 1');
+                if (!res2.ok) throw new Error(data2.error || 'Failed to load top players for Team 2');
+
+                renderTopPlayers(list1, data1.top_players);
+                renderTopPlayers(list2, data2.top_players);
+            } catch (err) {
+                console.error(err);
+                list1.innerHTML = `<li class=\"text-red-600\">${err.message}</li>`;
+                list2.innerHTML = `<li class=\"text-red-600\">${err.message}</li>`;
+            }
+        }
+
+        function renderTopPlayers(listEl, players) {
+            if (!players || players.length === 0) {
+                listEl.innerHTML = '<li class="text-gray-500">No data available</li>';
+                return;
+            }
+            listEl.innerHTML = players.map((p, idx) => `
+                <li class="flex items-center justify-between bg-gray-50 px-3 py-2 rounded">
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm text-gray-500 w-6">${idx + 1}.</span>
+                        <span class="font-medium">${p.player}</span>
+                    </div>
+                    <div class="text-sm text-gray-700 flex gap-3">
+                        <span><span class="text-gray-500">PTS</span> ${p.points}</span>
+                        <span><span class="text-gray-500">REB</span> ${p.rebounds}</span>
+                        <span><span class="text-gray-500">AST</span> ${p.assists}</span>
+                        <span class="font-semibold text-blue-700">Total ${p.total}</span>
+                    </div>
+                </li>
+            `).join('');
         }
 
         // Display team comparison
@@ -362,7 +508,19 @@
                 // Update prediction
                 const predictionDiv = document.getElementById(`player${playerNum}-prediction`);
                 predictionDiv.innerHTML = `
+                    <div class="mb-4">
+                        <h4 class="text-lg font-semibold mb-2">Game Averages</h4>
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white p-3 rounded-lg shadow">
+                            <p class="text-sm text-gray-600">Minutes</p>
+                            <p class="text-2xl font-bold text-orange-600">${data.averages.minutes.toFixed(1)}</p>
+                            ${data.predictions.minutes ? `
+                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.minutes.prediction.toFixed(1)}</p>
+                                <p class="text-xs text-gray-400">Range: ${data.predictions.minutes.lower_bound.toFixed(1)} - ${data.predictions.minutes.upper_bound.toFixed(1)}</p>
+                                ${data.predictions.minutes.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
+                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
+                        </div>
                         <div class="bg-white p-3 rounded-lg shadow">
                             <p class="text-sm text-gray-600">Points</p>
                             <p class="text-2xl font-bold text-blue-600">${data.averages.points.toFixed(1)}</p>
@@ -390,15 +548,6 @@
                                 ${data.predictions.assists.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
                             ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
                         </div>
-                        <div class="bg-white p-3 rounded-lg shadow">
-                            <p class="text-sm text-gray-600">Three-Pointers</p>
-                            <p class="text-2xl font-bold text-red-600">${data.averages.threes.toFixed(1)}</p>
-                            ${data.predictions.threes ? `
-                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.threes.prediction.toFixed(1)}</p>
-                                <p class="text-xs text-gray-400">Range: ${data.predictions.threes.lower_bound.toFixed(1)} - ${data.predictions.threes.upper_bound.toFixed(1)}</p>
-                                ${data.predictions.threes.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
-                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
-                        </div>
                     </div>
                 `;
 
@@ -413,6 +562,10 @@
                             </div>
                             <div class="grid grid-cols-4 gap-2 text-sm">
                                 <div>
+                                    <span class="text-gray-600">MIN:</span>
+                                    <span class="font-medium">${game.minutes}</span>
+                                </div>
+                                <div>
                                     <span class="text-gray-600">PTS:</span>
                                     <span class="font-medium">${game.points}</span>
                                 </div>
@@ -423,10 +576,6 @@
                                 <div>
                                     <span class="text-gray-600">AST:</span>
                                     <span class="font-medium">${game.assists}</span>
-                                </div>
-                                <div>
-                                    <span class="text-gray-600">3P:</span>
-                                    <span class="font-medium">${game.threes}</span>
                                 </div>
                             </div>
                         </div>
@@ -468,6 +617,12 @@
                     labels: data.stats.map(game => game.date),
                     datasets: [
                         {
+                            label: 'Minutes',
+                            data: data.stats.map(game => game.minutes),
+                            borderColor: 'rgb(249, 115, 22)',
+                            tension: 0.1
+                        },
+                        {
                             label: 'Points',
                             data: data.stats.map(game => game.points),
                             borderColor: 'rgb(59, 130, 246)',
@@ -483,12 +638,6 @@
                             label: 'Assists',
                             data: data.stats.map(game => game.assists),
                             borderColor: 'rgb(168, 85, 247)',
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Three-Pointers',
-                            data: data.stats.map(game => game.threes),
-                            borderColor: 'rgb(239, 68, 68)',
                             tension: 0.1
                         }
                     ]
