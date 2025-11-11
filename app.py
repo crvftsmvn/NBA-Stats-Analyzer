@@ -16,7 +16,7 @@ app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False  # Maintain JSON key order for better readability
 
 def load_and_process_data():
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'NBA.csv')
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'NBA.csv')
     df = pd.read_csv(csv_path)
     df['Date'] = pd.to_datetime(df['Date'], format='%d-%m-%Y %H:%M')
     
