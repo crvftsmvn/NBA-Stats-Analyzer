@@ -1,3 +1,8 @@
+"""
+NBA Stats Analyzer - A comprehensive Flask web application for analyzing NBA team and player statistics.
+Features: Team comparison, player analysis, top performers ranking, and game-by-game statistics.
+"""
+
 from flask import Flask, render_template, jsonify, request
 import pandas as pd
 import numpy as np
@@ -8,6 +13,7 @@ import ast
 import os
 
 app = Flask(__name__)
+app.config['JSON_SORT_KEYS'] = False  # Maintain JSON key order for better readability
 
 def load_and_process_data():
     csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'NBA.csv')

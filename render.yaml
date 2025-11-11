@@ -1,3 +1,5 @@
+# Render.com deployment configuration for NBA Stats Analyzer
+# This configuration automatically deploys the Flask application to Render's cloud platform
 services:
   - type: web
     name: nba-stats-analyzer
@@ -9,3 +11,5 @@ services:
     envVars:
       - key: FLASK_ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.11.0
