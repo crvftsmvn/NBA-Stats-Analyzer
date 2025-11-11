@@ -548,19 +548,21 @@ def team_rankings():
 
 @app.route('/team_top_players', methods=['POST'])
 def team_top_players():
+    """Returns the top 5 players (sum of points+rebounds+assists) for the last N games of the selected team (where N = n_games from POST data)."""
     try:
         data = request.json
         team = data.get('team')
         n_games = safe_int(data.get('n_games', 5))
-        
+
         if not team:
             return jsonify({'error': 'Team name is required'}), 400
         if n_games <= 0:
             n_games = 5
-        
+
         df = load_and_process_data()
+        # Only these N most recent games are considered below
         team_games = get_team_games(df, team, n_games)
-        
+
         totals = {}
         for _, game in team_games.iterrows():
             try:
@@ -586,7 +588,7 @@ def team_top_players():
                         totals[name]['total'] += pts + reb + asts
             except Exception:
                 continue
-        
+        # Sorted by total over those last n_games, top-5
         ranking = sorted(totals.values(), key=lambda x: x['total'], reverse=True)[:5]
         return jsonify({'team': team, 'top_players': ranking})
     except Exception as e:
