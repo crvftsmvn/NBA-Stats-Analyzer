@@ -173,6 +173,18 @@
     </div>
 
     <script>
+        // Determine handicap win (green = win, red = loss)
+        function handicapWin(game) {
+            const hcap = parseFloat(game.HCAP);
+            if (isNaN(hcap)) return false;
+            const homePts = parseFloat(game.HomeP);
+            const awayPts = parseFloat(game.AwayP);
+            const adjustedAway = awayPts + hcap; // positive adds to away, negative subtracts
+            const awayCovers = adjustedAway > homePts;
+            const homeFavored = hcap > 0;
+            return (homeFavored && !awayCovers) || (!homeFavored && awayCovers);
+        }
+
         // Compare teams
         async function compareTeams() {
             const team1 = document.getElementById('team1-select').value;
@@ -236,9 +248,10 @@
                     <h3 class="text-lg font-semibold mb-4">${document.getElementById('team1-select').value}</h3>
                     <div class="space-y-2">
                         ${data.team1_games.map(game => `
-                            <div class="p-2 bg-gray-50 rounded">
+                            <div class="p-2 bg-gray-50 rounded cursor-pointer game-item" data-date="${game.Date}" data-home="${game.Home}" data-away="${game.Away}">
                                 <p>${game.Date}</p>
                                 <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                                <p class="${handicapWin(game) ? 'text-green-600' : 'text-red-600'} font-semibold">HCAP ${game.HCAP}</p>
                             </div>
                         `).join('')}
                     </div>
@@ -247,15 +260,16 @@
                     <h3 class="text-lg font-semibold mb-4">${document.getElementById('team2-select').value}</h3>
                     <div class="space-y-2">
                         ${data.team2_games.map(game => `
-                            <div class="p-2 bg-gray-50 rounded">
+                            <div class="p-2 bg-gray-50 rounded cursor-pointer game-item" data-date="${game.Date}" data-home="${game.Home}" data-away="${game.Away}">
                                 <p>${game.Date}</p>
                                 <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                                <p class="${handicapWin(game) ? 'text-green-600' : 'text-red-600'} font-semibold">HCAP ${game.HCAP}</p>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             `;
-        }
+                    }
 
         function updatePlayerDropdowns(team1, team2) {
             // Update team titles
@@ -366,9 +380,10 @@
                     <h3 class="text-lg font-semibold mb-4">${document.getElementById('team1-select').value}</h3>
                     <div class="space-y-2">
                         ${data.team1_games.map(game => `
-                            <div class="p-2 bg-gray-50 rounded">
+                            <div class="p-2 bg-gray-50 rounded cursor-pointer game-item" data-date="${game.Date}" data-home="${game.Home}" data-away="${game.Away}">
                                 <p>${game.Date}</p>
                                 <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                                <p class="${handicapWin(game) ? 'text-green-600' : 'text-red-600'} font-semibold">HCAP ${game.HCAP}</p>
                             </div>
                         `).join('')}
                     </div>
@@ -377,15 +392,16 @@
                     <h3 class="text-lg font-semibold mb-4">${document.getElementById('team2-select').value}</h3>
                     <div class="space-y-2">
                         ${data.team2_games.map(game => `
-                            <div class="p-2 bg-gray-50 rounded">
+                            <div class="p-2 bg-gray-50 rounded cursor-pointer game-item" data-date="${game.Date}" data-home="${game.Home}" data-away="${game.Away}">
                                 <p>${game.Date}</p>
                                 <p>${game.Home} ${game.HomeP} - ${game.AwayP} ${game.Away}</p>
+                                <p class="${handicapWin(game) ? 'text-green-600' : 'text-red-600'} font-semibold">HCAP ${game.HCAP}</p>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             `;
-        }
+                    }
 
         function updatePlayerDropdowns(team1, team2) {
             // Update team titles
@@ -623,6 +639,16 @@
                 } else {
                     gamesListDiv.innerHTML = '<div class="text-gray-500 text-center py-4">No recent games available</div>';
                 }
+                // Add / update player profile link
+                const profileLinkId = `player${playerNum}-profile-link`;
+                let linkEl = document.getElementById(profileLinkId);
+                if (!linkEl) {
+                    linkEl = document.createElement('div');
+                    linkEl.id = profileLinkId;
+                    linkEl.className = 'mt-4';
+                    statsDiv.appendChild(linkEl);
+                }
+                linkEl.innerHTML = `<a href="/player_profile/${encodeURIComponent(player)}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">View Full Profile</a>`;
             } catch (error) {
                 console.error('Error:', error);
                 const statsDiv = document.getElementById(`player${playerNum}-stats`);
@@ -701,6 +727,73 @@
                 }
             });
         }
+    </script>
+<!-- Lineup Modal -->
+    <div id="lineupModal" class="fixed inset-0 bg-black bg-opacity-50 items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative">
+            <button id="closeModal" class="absolute right-2 top-2 text-gray-500 text-2xl leading-none">&times;</button>
+            <h3 id="lineupModalTitle" class="text-lg font-semibold mb-4"></h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="lineupContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global click listener for any .game-item (handles dynamic content)
+        document.addEventListener('click', (ev) => {
+            const el = ev.target.closest('.game-item');
+            if (!el) return;
+            const { date, home, away } = el.dataset;
+            showLineup(date, home, away);
+        });
+        // --- END delegation ---
+
+        async function showLineup(date, home, away) {
+            try {
+                const res = await fetch(`/get_lineup?date=${date}&home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to load lineup');
+                renderLineupModal(data);
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+
+        function renderLineupModal(data) {
+            const modal = document.getElementById('lineupModal');
+            const title = document.getElementById('lineupModalTitle');
+            const content = document.getElementById('lineupContent');
+            title.textContent = `${data.home} vs ${data.away} – ${data.date}`;
+            content.innerHTML = `
+                <div>
+                    <h4 class="font-semibold mb-2">${data.home}</h4>
+                    ${renderPlayersList(data.home_players)}
+                </div>
+                <div>
+                    <h4 class="font-semibold mb-2">${data.away}</h4>
+                    ${renderPlayersList(data.away_players)}
+                </div>
+            `;
+            modal.classList.remove('hidden','items-center','justify-center');
+            modal.classList.add('flex');
+        }
+
+        function renderPlayersList(players) {
+            if (!players || players.length === 0) return '<p class="text-sm text-gray-500">No data</p>';
+            return '<ul class="space-y-1 text-sm">' + players.map(p => `
+                <li class="flex justify-between">
+                    <span>${p.name}</span>
+                    <span>${p.points} pts</span>
+                </li>`).join('') + '</ul>';
+        }
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('lineupModal').classList.add('hidden');
+        });
+        document.getElementById('lineupModal').addEventListener('click', (e) => {
+            if (e.target.id === 'lineupModal') {
+                e.currentTarget.classList.add('hidden');
+            }
+        });
     </script>
 </body>
 </html> 

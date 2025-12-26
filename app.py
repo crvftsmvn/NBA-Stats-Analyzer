@@ -11,6 +11,7 @@ from datetime import datetime
 import json
 import ast
 import os
+from collections import Counter
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False  # Maintain JSON key order for better readability
@@ -606,6 +607,223 @@ def team_top_players():
             'error': error_msg,
             'request_data': data if 'data' in locals() else None
         }), 500
+
+
+# --------------------- Player Profile Utilities ---------------------
+
+def player_in_game(row, player_name):
+    """Check if the player participated in the given game row."""
+    try:
+        for col in ['HomeD', 'AwayD']:
+            pdata = row[col]
+            if isinstance(pdata, str):
+                try:
+                    pdata = ast.literal_eval(pdata)
+                except (ValueError, SyntaxError):
+                    continue
+            if isinstance(pdata, list):
+                # player name is first element in each sublist
+                for p in pdata:
+                    if isinstance(p, (list, tuple)) and len(p) > 0 and p[0] == player_name:
+                        return True
+    except Exception:
+        pass
+    return False
+
+def compute_team_result(row, team):
+    """Return 'W' or 'L' for the given team in the game row and points diff."""
+    try:
+        if row['Home'] == team:
+            team_pts, opp_pts = safe_int(row['HomeP']), safe_int(row['AwayP'])
+        else:
+            team_pts, opp_pts = safe_int(row['AwayP']), safe_int(row['HomeP'])
+        return ('W' if team_pts > opp_pts else 'L', team_pts, opp_pts)
+    except Exception:
+        return ('N/A', 0, 0)
+
+def get_team_performance(df, team, player_name, with_player=True):
+    """Aggregate team performance with or without the player."""
+    games = df[(df['Home'] == team) | (df['Away'] == team)]
+    records = []
+    for _, row in games.iterrows():
+        participated = player_in_game(row, player_name)
+        if participated != with_player:
+            continue
+        result, team_pts, opp_pts = compute_team_result(row, team)
+        records.append({
+            'date': row['Date'].strftime('%Y-%m-%d'),
+            'opponent': row['Away'] if row['Home'] == team else row['Home'],
+            'team_pts': team_pts,
+            'opp_pts': opp_pts,
+            'result': result
+        })
+    wins = sum(1 for r in records if r['result'] == 'W')
+    losses = sum(1 for r in records if r['result'] == 'L')
+    avg_for = round(np.mean([r['team_pts'] for r in records]), 1) if records else 0.0
+    avg_against = round(np.mean([r['opp_pts'] for r in records]), 1) if records else 0.0
+    return {
+        'wins': wins,
+        'losses': losses,
+        'avg_for': avg_for,
+        'avg_against': avg_against,
+        'games': records
+    }
+
+def get_team_core_players(df, team, min_ratio=0.6):
+    """Return list of core players for the team (appear in >= min_ratio of games)."""
+    # Count appearances
+    games = df[(df['Home'] == team) | (df['Away'] == team)]
+    total_games = len(games)
+    counts = Counter()
+    for _, row in games.iterrows():
+        pdata = row['HomeD'] if row['Home'] == team else row['AwayD']
+        if isinstance(pdata, str):
+            try:
+                pdata = ast.literal_eval(pdata)
+            except (ValueError, SyntaxError):
+                continue
+        for p in pdata:
+            if isinstance(p, (list, tuple)) and p:
+                counts[str(p[0])] += 1
+    core = [name for name, c in counts.items() if c / total_games >= min_ratio]
+    return core
+
+def summarise_opponent_effect(player_games):
+    """Return per-opponent averages for player performance."""
+    summary = {}
+    for _, row in player_games.iterrows():
+        opp = row['opponent']
+        pts = safe_int(row['points'])
+        if opp not in summary:
+            summary[opp] = []
+        summary[opp].append(pts)
+    return [{'opponent': k, 'games': len(v), 'avg_points': round(np.mean(v), 1)} for k, v in summary.items()]
+
+@app.route('/get_lineup')
+def get_lineup():
+    """Return lineups for a specific game (by date + home + away team names)."""
+    try:
+        date_str = request.args.get('date')
+        home = request.args.get('home')
+        away = request.args.get('away')
+        if not date_str or not home or not away:
+            return jsonify({'error': 'Missing parameters'}), 400
+        df = load_and_process_data()
+        date_dt = pd.to_datetime(date_str)
+        row = df[(df['Date'].dt.strftime('%Y-%m-%d') == date_str) & (df['Home']==home) & (df['Away']==away)]
+        if row.empty:
+            return jsonify({'error': 'Game not found'}), 404
+        row = row.iloc[0]
+        def parse_players(raw):
+            if isinstance(raw, str):
+                try:
+                    raw = ast.literal_eval(raw)
+                except Exception:
+                    return []
+            players = []
+            for p in raw:
+                if isinstance(p, (list, tuple)) and len(p)>=5:
+                    players.append({
+                        'name': str(p[0]),
+                        'minutes': safe_int(p[1]),
+                        'points': safe_int(p[2]),
+                        'rebounds': safe_int(p[3]),
+                        'assists': safe_int(p[4])
+                    })
+            return players
+        return jsonify({
+            'date': date_str,
+            'home': home,
+            'away': away,
+            'home_players': parse_players(row['HomeD']),
+            'away_players': parse_players(row['AwayD'])
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/player_profile/<player_name>')
+def player_profile(player_name):
+    """Render detailed profile page for selected player, including games where they under- or over-performed"""
+    df = load_and_process_data()
+    player_games = get_player_stats(df, player_name)
+    if player_games.empty:
+        return f"No data found for {player_name}", 404
+
+    # Determine player’s primary team (most frequent)
+    primary_team = Counter(player_games['team']).most_common(1)[0][0]
+
+    # Team performance aggregates
+    perf_with = get_team_performance(df, primary_team, player_name, with_player=True)
+    perf_without = get_team_performance(df, primary_team, player_name, with_player=False)
+
+    # Baseline averages
+    avg_pts = player_games['points'].astype(float).mean()
+    std_pts = player_games['points'].astype(float).std(ddof=0)
+    threshold = max(5.0, std_pts if not np.isnan(std_pts) else 5.0)
+
+    # Identify team core players (appear in ≥60 % of team games) to detect absences
+    core_players = get_team_core_players(df, primary_team)
+
+    def find_game_row(game_date_str, team):
+        """Locate the original df row for the given team/date."""
+        mask = (df['Date'].dt.strftime('%Y-%m-%d') == game_date_str) & ((df['Home'] == team) | (df['Away'] == team))
+        subset = df[mask]
+        if len(subset):
+            return subset.iloc[0]
+        return None
+
+    def players_in_df_row(row, team):
+        pdata = row['HomeD'] if row['Home'] == team else row['AwayD']
+        if isinstance(pdata, str):
+            try:
+                pdata = ast.literal_eval(pdata)
+            except (ValueError, SyntaxError):
+                pdata = []
+        return [str(p[0]) for p in pdata if isinstance(p, (list, tuple)) and p]
+
+    under_perf, over_perf = [], []
+    for _, pg in player_games.iterrows():
+        pts = safe_float(pg['points'])
+        diff = pts - avg_pts
+        if abs(diff) < threshold:
+            continue  # Not a significant deviation
+        game_row = find_game_row(pg['date'], pg['team'])
+        if game_row is None:
+            continue
+        # Team points/result for that game
+        result, team_pts, opp_pts = compute_team_result(game_row, pg['team'])
+        present_players = players_in_df_row(game_row, pg['team'])
+        missing_core = [p for p in core_players if p not in present_players]
+
+        entry = {
+            'date': pg['date'],
+            'opponent': pg['opponent'],
+            'points': pts,
+            'diff': round(diff, 1),
+            'team_pts': team_pts,
+            'opp_pts': opp_pts,
+            'result': result,
+            'missing_core': missing_core
+        }
+        if diff < 0:
+            under_perf.append(entry)
+        else:
+            over_perf.append(entry)
+
+    # Convert to list­-of-dicts for Jinja
+    player_games_list = player_games.to_dict('records')
+
+    return render_template('player_profile.html',
+                           player_name=player_name,
+                           primary_team=primary_team,
+                           player_games=player_games_list,
+                           perf_with=perf_with,
+                           perf_without=perf_without,
+                           avg_pts=round(avg_pts, 1),
+                           threshold=round(threshold, 1),
+                           under_perf=under_perf,
+                           over_perf=over_perf)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
