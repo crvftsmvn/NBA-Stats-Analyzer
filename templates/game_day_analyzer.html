@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Day Analyzer - NBA Stats</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            background-attachment: fixed;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 1.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.15), 0 15px 15px -5px rgba(0, 0, 0, 0.06);
+        }
+        h1 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        button {
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .player-item {
+            transition: all 0.2s ease;
+        }
+        .player-item:hover {
+            background-color: #f3f4f6;
+        }
+        .selected {
+            background-color: #dbeafe !important;
+            border-color: #3b82f6 !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-5xl font-bold">📊 Game Day Analyzer</h1>
+            <a href="/" class="bg-white text-purple-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors">
+                ← Back to Home
+            </a>
+        </div>
+
+        <!-- Navigation Controls -->
+        <div class="card p-6 mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-semibold">Game Day Navigation</h2>
+                <div class="flex gap-2">
+                    <button id="prev-day-btn" onclick="navigateDay(-1)" 
+                            class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        ← Previous Day
+                    </button>
+                    <button id="next-day-btn" onclick="navigateDay(1)" 
+                            class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        Next Day →
+                    </button>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <label class="text-sm font-medium text-gray-700">Current Game Day:</label>
+                <select id="game-day-select" onchange="loadGameDay()" 
+                        class="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">Loading...</option>
+                </select>
+                <button onclick="goToFirstDay()" 
+                        class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700">
+                        Go to First Day
+                    </button>
+            </div>
+            <div id="day-info" class="mt-4 text-sm text-gray-600"></div>
+        </div>
+
+        <!-- Underperformers List -->
+        <div class="card p-6 mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-semibold">Players Underperforming on This Day</h2>
+                <div class="flex gap-2">
+                    <button onclick="selectAll()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                        Select All
+                    </button>
+                    <button onclick="deselectAll()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700">
+                        Deselect All
+                    </button>
+                    <button onclick="analyzeSelected()" id="analyze-btn" 
+                            class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            disabled>
+                        Analyze Selected Players
+                    </button>
+                </div>
+            </div>
+            <div id="underperformers-list" class="space-y-2">
+                <div class="text-center text-gray-500 py-8">Select a game day to view underperforming players</div>
+            </div>
+        </div>
+
+        <!-- Analysis Results -->
+        <div id="analysis-results" class="card p-6 hidden">
+            <h2 class="text-2xl font-semibold mb-4">Underperformance Analysis</h2>
+            <div id="analysis-content"></div>
+        </div>
+    </div>
+
+    <script>
+        let gameDays = [];
+        let currentDayIndex = 0;
+        let selectedPlayers = new Set();
+
+        // Load game days on page load
+        async function loadGameDays() {
+            try {
+                const response = await fetch('/api/game_days');
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load game days');
+                }
+                
+                gameDays = data.game_days;
+                populateGameDaySelect();
+                
+                // Start with the most recent day
+                if (gameDays.length > 0) {
+                    currentDayIndex = 0;
+                    loadGameDay();
+                }
+            } catch (error) {
+                console.error('Error loading game days:', error);
+                document.getElementById('game-day-select').innerHTML = 
+                    '<option value="">Error loading game days</option>';
+            }
+        }
+
+        function populateGameDaySelect() {
+            const select = document.getElementById('game-day-select');
+            select.innerHTML = '';
+            
+            gameDays.forEach((day, index) => {
+                const option = document.createElement('option');
+                option.value = day;
+                option.textContent = formatDate(day);
+                if (index === currentDayIndex) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric',
+                weekday: 'short'
+            });
+        }
+
+        async function loadGameDay() {
+            const select = document.getElementById('game-day-select');
+            const selectedDay = select.value;
+            
+            if (!selectedDay) return;
+            
+            // Update current index
+            currentDayIndex = gameDays.indexOf(selectedDay);
+            updateNavigationButtons();
+            
+            // Show loading state
+            document.getElementById('underperformers-list').innerHTML = 
+                '<div class="text-center text-gray-500 py-8">Loading...</div>';
+            
+            try {
+                const response = await fetch('/api/game_day_underperformers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ game_day: selectedDay })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load underperformers');
+                }
+                
+                displayUnderperformers(data);
+                updateDayInfo(data);
+            } catch (error) {
+                console.error('Error loading game day:', error);
+                document.getElementById('underperformers-list').innerHTML = 
+                    `<div class="text-center text-red-600 py-8">Error: ${error.message}</div>`;
+            }
+        }
+
+        function displayUnderperformers(data) {
+            const listDiv = document.getElementById('underperformers-list');
+            
+            if (!data.underperformers || data.underperformers.length === 0) {
+                listDiv.innerHTML = 
+                    '<div class="text-center text-gray-500 py-8">No players underperformed on this day</div>';
+                return;
+            }
+            
+            let html = `<div class="mb-4 text-sm text-gray-600">
+                Found <strong>${data.total_underperformers}</strong> underperforming players on ${formatDate(data.game_day)}
+            </div>`;
+            
+            html += '<div class="space-y-3">';
+            
+            data.underperformers.forEach(player => {
+                const isSelected = selectedPlayers.has(player.player);
+                html += `
+                    <div class="player-item border-2 rounded-lg p-4 cursor-pointer ${isSelected ? 'selected' : ''}" 
+                         onclick="togglePlayer('${player.player.replace(/'/g, "\\'")}')"
+                         data-player="${player.player}">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <input type="checkbox" ${isSelected ? 'checked' : ''} 
+                                           onclick="event.stopPropagation(); togglePlayer('${player.player.replace(/'/g, "\\'")}')"
+                                           class="w-5 h-5 text-blue-600">
+                                    <h3 class="text-lg font-semibold">${player.player}</h3>
+                                    <span class="text-sm text-gray-600">(${player.team} vs ${player.opponent})</span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-4 text-sm mb-2">
+                                    <div>
+                                        <span class="text-gray-600">Points:</span>
+                                        <span class="font-semibold ${player.points < player.avg_points ? 'text-red-600' : ''}">
+                                            ${player.points} / ${player.avg_points} avg
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Rebounds:</span>
+                                        <span class="font-semibold ${player.rebounds < player.avg_rebounds ? 'text-red-600' : ''}">
+                                            ${player.rebounds} / ${player.avg_rebounds} avg
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Assists:</span>
+                                        <span class="font-semibold ${player.assists < player.avg_assists ? 'text-red-600' : ''}">
+                                            ${player.assists} / ${player.avg_assists} avg
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    Based on ${player.games_played} previous games
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            listDiv.innerHTML = html;
+            updateAnalyzeButton();
+        }
+
+        function togglePlayer(playerName) {
+            if (selectedPlayers.has(playerName)) {
+                selectedPlayers.delete(playerName);
+            } else {
+                selectedPlayers.add(playerName);
+            }
+            
+            // Update UI
+            const playerDiv = document.querySelector(`[data-player="${playerName}"]`);
+            if (playerDiv) {
+                if (selectedPlayers.has(playerName)) {
+                    playerDiv.classList.add('selected');
+                    playerDiv.querySelector('input[type="checkbox"]').checked = true;
+                } else {
+                    playerDiv.classList.remove('selected');
+                    playerDiv.querySelector('input[type="checkbox"]').checked = false;
+                }
+            }
+            
+            updateAnalyzeButton();
+        }
+
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('#underperformers-list input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                const playerName = checkbox.closest('.player-item').dataset.player;
+                selectedPlayers.add(playerName);
+                checkbox.checked = true;
+                checkbox.closest('.player-item').classList.add('selected');
+            });
+            updateAnalyzeButton();
+        }
+
+        function deselectAll() {
+            selectedPlayers.clear();
+            const checkboxes = document.querySelectorAll('#underperformers-list input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+                checkbox.closest('.player-item').classList.remove('selected');
+            });
+            updateAnalyzeButton();
+        }
+
+        function updateAnalyzeButton() {
+            const btn = document.getElementById('analyze-btn');
+            btn.disabled = selectedPlayers.size === 0;
+        }
+
+        async function analyzeSelected() {
+            if (selectedPlayers.size === 0) {
+                alert('Please select at least one player');
+                return;
+            }
+            
+            const resultsDiv = document.getElementById('analysis-results');
+            const contentDiv = document.getElementById('analysis-content');
+            
+            resultsDiv.classList.remove('hidden');
+            contentDiv.innerHTML = '<div class="text-center text-gray-500 py-8">Analyzing...</div>';
+            
+            try {
+                const response = await fetch('/api/player_underperformance_count', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        players: Array.from(selectedPlayers)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to analyze players');
+                }
+                
+                displayAnalysisResults(data.results);
+            } catch (error) {
+                console.error('Error analyzing players:', error);
+                contentDiv.innerHTML = 
+                    `<div class="text-center text-red-600 py-8">Error: ${error.message}</div>`;
+            }
+        }
+
+        function displayAnalysisResults(results) {
+            const contentDiv = document.getElementById('analysis-content');
+            
+            let html = '<div class="space-y-6">';
+            
+            for (const [playerName, stats] of Object.entries(results)) {
+                html += `
+                    <div class="border-2 rounded-lg p-4">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold">${playerName}</h3>
+                            <div class="text-right">
+                                <div class="text-2xl font-bold text-red-600">${stats.underperformance_count}</div>
+                                <div class="text-sm text-gray-600">out of ${stats.total_games} games</div>
+                                <div class="text-sm font-semibold text-gray-700">
+                                    ${stats.underperformance_percentage}% underperformance rate
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-4 mb-4 text-sm">
+                            <div>
+                                <span class="text-gray-600">Avg Points:</span>
+                                <span class="font-semibold">${stats.avg_points.toFixed(1)}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Avg Rebounds:</span>
+                                <span class="font-semibold">${stats.avg_rebounds.toFixed(1)}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Avg Assists:</span>
+                                <span class="font-semibold">${stats.avg_assists.toFixed(1)}</span>
+                            </div>
+                        </div>
+                        ${stats.details.length > 0 ? `
+                            <div class="mt-4">
+                                <h4 class="font-semibold mb-2">Underperformance Games:</h4>
+                                <div class="max-h-64 overflow-y-auto space-y-2">
+                                    ${stats.details.map(game => `
+                                        <div class="bg-gray-50 p-2 rounded text-sm">
+                                            <div class="flex justify-between items-center">
+                                                <span class="font-medium">${game.date}</span>
+                                                <span class="text-gray-600">${game.team} vs ${game.opponent}</span>
+                                            </div>
+                                            <div class="mt-1 text-xs text-gray-600">
+                                                ${game.reasons.join(' | ')}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p class="text-gray-500 text-sm">No underperformance games found</p>'}
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            contentDiv.innerHTML = html;
+        }
+
+        function navigateDay(direction) {
+            const newIndex = currentDayIndex + direction;
+            if (newIndex >= 0 && newIndex < gameDays.length) {
+                currentDayIndex = newIndex;
+                document.getElementById('game-day-select').value = gameDays[currentDayIndex];
+                loadGameDay();
+            }
+        }
+
+        function goToFirstDay() {
+            if (gameDays.length > 0) {
+                currentDayIndex = gameDays.length - 1; // Last day is the first chronologically
+                document.getElementById('game-day-select').value = gameDays[currentDayIndex];
+                loadGameDay();
+            }
+        }
+
+        function updateNavigationButtons() {
+            document.getElementById('prev-day-btn').disabled = currentDayIndex === 0;
+            document.getElementById('next-day-btn').disabled = currentDayIndex === gameDays.length - 1;
+        }
+
+        function updateDayInfo(data) {
+            const infoDiv = document.getElementById('day-info');
+            if (data && data.total_underperformers !== undefined) {
+                infoDiv.textContent = 
+                    `Day ${currentDayIndex + 1} of ${gameDays.length} | ${data.total_underperformers} underperforming players found`;
+            }
+        }
+
+        // Initialize on page load
+        loadGameDays();
+    </script>
+</body>
+</html>
+
