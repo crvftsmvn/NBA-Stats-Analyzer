@@ -73,16 +73,31 @@
                     </button>
                 </div>
             </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Current Game Day:</label>
+                    <select id="game-day-select" onchange="loadGameDay()" 
+                            class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Filter by Team (Optional):</label>
+                    <select id="team-select" onchange="loadGameDay()" 
+                            class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">All Teams</option>
+                    </select>
+                </div>
+            </div>
             <div class="flex items-center gap-4">
-                <label class="text-sm font-medium text-gray-700">Current Game Day:</label>
-                <select id="game-day-select" onchange="loadGameDay()" 
-                        class="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                    <option value="">Loading...</option>
-                </select>
                 <button onclick="goToFirstDay()" 
                         class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700">
-                        Go to First Day
-                    </button>
+                    Go to First Day
+                </button>
+                <button onclick="clearTeamFilter()" 
+                        class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
+                    Clear Team Filter
+                </button>
             </div>
             <div id="day-info" class="mt-4 text-sm text-gray-600"></div>
         </div>
@@ -122,29 +137,63 @@
         let currentDayIndex = 0;
         let selectedPlayers = new Set();
 
-        // Load game days on page load
+        // Load game days and teams on page load
         async function loadGameDays() {
             try {
-                const response = await fetch('/api/game_days');
-                const data = await response.json();
+                const [daysResponse, teamsResponse] = await Promise.all([
+                    fetch('/api/game_days'),
+                    fetch('/api/teams')
+                ]);
                 
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to load game days');
+                const daysData = await daysResponse.json();
+                const teamsData = await teamsResponse.json();
+                
+                if (!daysResponse.ok) {
+                    throw new Error(daysData.error || 'Failed to load game days');
+                }
+                if (!teamsResponse.ok) {
+                    throw new Error(teamsData.error || 'Failed to load teams');
                 }
                 
-                gameDays = data.game_days;
-                populateGameDaySelect();
+                gameDays = daysData.game_days;
                 
-                // Start with the most recent day
+                // Start with the most recent day (index 0)
                 if (gameDays.length > 0) {
                     currentDayIndex = 0;
+                    populateGameDaySelect();
+                    populateTeamSelect(teamsData.teams);
+                    
+                    // Explicitly set the select value to the first (most recent) day
+                    const select = document.getElementById('game-day-select');
+                    select.value = gameDays[0];
+                    
                     loadGameDay();
+                } else {
+                    populateGameDaySelect();
+                    populateTeamSelect(teamsData.teams);
                 }
             } catch (error) {
-                console.error('Error loading game days:', error);
+                console.error('Error loading data:', error);
                 document.getElementById('game-day-select').innerHTML = 
-                    '<option value="">Error loading game days</option>';
+                    '<option value="">Error loading data</option>';
             }
+        }
+
+        function populateTeamSelect(teams) {
+            const select = document.getElementById('team-select');
+            select.innerHTML = '<option value="">All Teams</option>';
+            
+            teams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team;
+                option.textContent = team;
+                select.appendChild(option);
+            });
+        }
+
+        function clearTeamFilter() {
+            document.getElementById('team-select').value = '';
+            loadGameDay();
         }
 
         function populateGameDaySelect() {
@@ -174,12 +223,19 @@
 
         async function loadGameDay() {
             const select = document.getElementById('game-day-select');
+            const teamSelect = document.getElementById('team-select');
             const selectedDay = select.value;
+            const selectedTeam = teamSelect.value || null;
             
             if (!selectedDay) return;
             
             // Update current index
             currentDayIndex = gameDays.indexOf(selectedDay);
+            if (currentDayIndex === -1) {
+                // If day not found, default to first day
+                currentDayIndex = 0;
+                select.value = gameDays[0];
+            }
             updateNavigationButtons();
             
             // Show loading state
@@ -192,7 +248,10 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ game_day: selectedDay })
+                    body: JSON.stringify({ 
+                        game_day: selectedDay,
+                        team: selectedTeam
+                    })
                 });
                 
                 const data = await response.json();
@@ -441,10 +500,19 @@
 
         function updateDayInfo(data) {
             const infoDiv = document.getElementById('day-info');
-            if (data && data.total_underperformers !== undefined) {
-                infoDiv.textContent = 
-                    `Day ${currentDayIndex + 1} of ${gameDays.length} | ${data.total_underperformers} underperforming players found`;
+            const teamSelect = document.getElementById('team-select');
+            const selectedTeam = teamSelect.value;
+            let infoText = `Day ${currentDayIndex + 1} of ${gameDays.length}`;
+            
+            if (selectedTeam) {
+                infoText += ` | Filtered by: ${selectedTeam}`;
             }
+            
+            if (data && data.total_underperformers !== undefined) {
+                infoText += ` | ${data.total_underperformers} underperforming players found`;
+            }
+            
+            infoDiv.textContent = infoText;
         }
 
         // Initialize on page load

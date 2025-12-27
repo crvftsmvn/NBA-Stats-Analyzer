@@ -12,6 +12,11 @@ import json
 import ast
 import os
 from collections import Counter
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False  # Maintain JSON key order for better readability
@@ -824,6 +829,359 @@ def player_profile(player_name):
                            threshold=round(threshold, 1),
                            under_perf=under_perf,
                            over_perf=over_perf)
+
+@app.route('/game_day_analyzer')
+def game_day_analyzer():
+    """Render the game day analyzer page"""
+    try:
+        return render_template('game_day_analyzer.html')
+    except Exception as e:
+        logger.error(f"Error rendering game_day_analyzer: {str(e)}")
+        return f"Error loading page: {str(e)}", 500
+
+@app.route('/api/game_days', methods=['GET'])
+def get_game_days():
+    """Get all unique game days sorted by date (most recent first)"""
+    try:
+        df = load_and_process_data()
+        
+        # Filter for completed games only (games with valid scores)
+        # A game is considered completed if it has valid HomeP and AwayP values (can be 0 or positive)
+        # Convert to numeric first to handle both string and numeric types
+        homep_numeric = pd.to_numeric(df['HomeP'], errors='coerce')
+        awayp_numeric = pd.to_numeric(df['AwayP'], errors='coerce')
+        
+        # A game is completed if both scores are valid numbers (including 0)
+        completed_games = df[
+            (homep_numeric.notna()) & 
+            (awayp_numeric.notna())
+        ].copy()
+        
+        if completed_games.empty:
+            return jsonify({'error': 'No completed games found'}), 404
+        
+        # Group by date (just the date part, not time)
+        completed_games['DateOnly'] = completed_games['Date'].dt.date
+        game_days = sorted(completed_games['DateOnly'].unique(), reverse=True)
+        
+        # Convert to string format for JSON serialization
+        game_days_str = [str(day) for day in game_days]
+        
+        return jsonify({
+            'game_days': game_days_str,
+            'total_days': len(game_days_str)
+        })
+    except Exception as e:
+        logger.error(f"Error in get_game_days: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/teams', methods=['GET'])
+def get_teams():
+    """Get all unique teams"""
+    try:
+        df = load_and_process_data()
+        teams = sorted(list(set(df['Home'].unique()) | set(df['Away'].unique())))
+        return jsonify({'teams': teams})
+    except Exception as e:
+        logger.error(f"Error in get_teams: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/game_day_underperformers', methods=['POST'])
+def get_game_day_underperformers():
+    """Get players who underperformed on a specific game day"""
+    try:
+        data = request.get_json()
+        game_day = data.get('game_day')
+        team_filter = data.get('team')  # Optional team filter
+        
+        if not game_day:
+            return jsonify({'error': 'Game day is required'}), 400
+        
+        df = load_and_process_data()
+        df['DateOnly'] = df['Date'].dt.date
+        
+        # Filter games for the specific day
+        target_date = pd.to_datetime(game_day).date()
+        day_games = df[df['DateOnly'] == target_date]
+        
+        # Filter by team if provided
+        if team_filter:
+            day_games = day_games[(day_games['Home'] == team_filter) | (day_games['Away'] == team_filter)]
+        
+        if day_games.empty:
+            return jsonify({'error': 'No games found for this day'}), 404
+        
+        # Calculate player averages across all games (before this day)
+        all_previous_games = df[df['DateOnly'] < target_date]
+        player_averages = {}
+        player_team_map = {}
+        
+        # Process all previous games to calculate averages
+        for _, row in all_previous_games.iterrows():
+            # Process home team players
+            home_data = row['HomeD']
+            if isinstance(home_data, str):
+                try:
+                    home_players = ast.literal_eval(home_data)
+                except (ValueError, SyntaxError):
+                    home_players = []
+            else:
+                home_players = home_data
+            
+            for player in home_players:
+                if isinstance(player, (list, tuple)) and len(player) >= 5:
+                    name = str(player[0])
+                    points = safe_float(player[2]) if len(player) > 2 else 0
+                    rebounds = safe_float(player[3]) if len(player) > 3 else 0
+                    assists = safe_float(player[4]) if len(player) > 4 else 0
+                    
+                    if name not in player_averages:
+                        player_averages[name] = {'points': [], 'rebounds': [], 'assists': [], 'games': 0}
+                        player_team_map[name] = row['Home']
+                    
+                    player_averages[name]['points'].append(points)
+                    player_averages[name]['rebounds'].append(rebounds)
+                    player_averages[name]['assists'].append(assists)
+                    player_averages[name]['games'] += 1
+            
+            # Process away team players
+            away_data = row['AwayD']
+            if isinstance(away_data, str):
+                try:
+                    away_players = ast.literal_eval(away_data)
+                except (ValueError, SyntaxError):
+                    away_players = []
+            else:
+                away_players = away_data
+            
+            for player in away_players:
+                if isinstance(player, (list, tuple)) and len(player) >= 5:
+                    name = str(player[0])
+                    points = safe_float(player[2]) if len(player) > 2 else 0
+                    rebounds = safe_float(player[3]) if len(player) > 3 else 0
+                    assists = safe_float(player[4]) if len(player) > 4 else 0
+                    
+                    if name not in player_averages:
+                        player_averages[name] = {'points': [], 'rebounds': [], 'assists': [], 'games': 0}
+                        player_team_map[name] = row['Away']
+                    
+                    player_averages[name]['points'].append(points)
+                    player_averages[name]['rebounds'].append(rebounds)
+                    player_averages[name]['assists'].append(assists)
+                    player_averages[name]['games'] += 1
+        
+        # Calculate averages
+        for name in player_averages:
+            stats = player_averages[name]
+            if stats['games'] > 0:
+                player_averages[name] = {
+                    'avg_points': float(round(np.mean(stats['points']), 1)),
+                    'avg_rebounds': float(round(np.mean(stats['rebounds']), 1)),
+                    'avg_assists': float(round(np.mean(stats['assists']), 1)),
+                    'games': stats['games']
+                }
+        
+        # Now check players in this game day
+        underperformers = []
+        threshold_percentage = 0.15  # 15% below average is considered noticeable
+        
+        for _, row in day_games.iterrows():
+            # Process home team players
+            if not team_filter or row['Home'] == team_filter:
+                home_data = row['HomeD']
+                if isinstance(home_data, str):
+                    try:
+                        home_players = ast.literal_eval(home_data)
+                    except (ValueError, SyntaxError):
+                        home_players = []
+                else:
+                    home_players = home_data
+                
+                for player in home_players:
+                    if isinstance(player, (list, tuple)) and len(player) >= 5:
+                        name = str(player[0])
+                        points = safe_float(player[2]) if len(player) > 2 else 0
+                        rebounds = safe_float(player[3]) if len(player) > 3 else 0
+                        assists = safe_float(player[4]) if len(player) > 4 else 0
+                        
+                        if name in player_averages and player_averages[name]['games'] >= 3:  # Need at least 3 games for average
+                            avg = player_averages[name]
+                            is_underperforming = False
+                            underperformance_reasons = []
+                            
+                            # Check if significantly below average in any stat
+                            if points < avg['avg_points'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Points: {points:.1f} vs {avg['avg_points']:.1f} avg")
+                            
+                            if rebounds < avg['avg_rebounds'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Rebounds: {rebounds:.1f} vs {avg['avg_rebounds']:.1f} avg")
+                            
+                            if assists < avg['avg_assists'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Assists: {assists:.1f} vs {avg['avg_assists']:.1f} avg")
+                            
+                            if is_underperforming:
+                                underperformers.append({
+                                    'player': name,
+                                    'team': row['Home'],
+                                    'opponent': row['Away'],
+                                    'points': float(points),
+                                    'rebounds': float(rebounds),
+                                    'assists': float(assists),
+                                    'avg_points': avg['avg_points'],
+                                    'avg_rebounds': avg['avg_rebounds'],
+                                    'avg_assists': avg['avg_assists'],
+                                    'reasons': underperformance_reasons,
+                                    'games_played': avg['games']
+                                })
+            
+            # Process away team players
+            if not team_filter or row['Away'] == team_filter:
+                away_data = row['AwayD']
+                if isinstance(away_data, str):
+                    try:
+                        away_players = ast.literal_eval(away_data)
+                    except (ValueError, SyntaxError):
+                        away_players = []
+                else:
+                    away_players = away_data
+                
+                for player in away_players:
+                    if isinstance(player, (list, tuple)) and len(player) >= 5:
+                        name = str(player[0])
+                        points = safe_float(player[2]) if len(player) > 2 else 0
+                        rebounds = safe_float(player[3]) if len(player) > 3 else 0
+                        assists = safe_float(player[4]) if len(player) > 4 else 0
+                        
+                        if name in player_averages and player_averages[name]['games'] >= 3:
+                            avg = player_averages[name]
+                            is_underperforming = False
+                            underperformance_reasons = []
+                            
+                            if points < avg['avg_points'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Points: {points:.1f} vs {avg['avg_points']:.1f} avg")
+                            
+                            if rebounds < avg['avg_rebounds'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Rebounds: {rebounds:.1f} vs {avg['avg_rebounds']:.1f} avg")
+                            
+                            if assists < avg['avg_assists'] * (1 - threshold_percentage):
+                                is_underperforming = True
+                                underperformance_reasons.append(f"Assists: {assists:.1f} vs {avg['avg_assists']:.1f} avg")
+                            
+                            if is_underperforming:
+                                underperformers.append({
+                                    'player': name,
+                                    'team': row['Away'],
+                                    'opponent': row['Home'],
+                                    'points': float(points),
+                                    'rebounds': float(rebounds),
+                                    'assists': float(assists),
+                                    'avg_points': avg['avg_points'],
+                                    'avg_rebounds': avg['avg_rebounds'],
+                                    'avg_assists': avg['avg_assists'],
+                                    'reasons': underperformance_reasons,
+                                    'games_played': avg['games']
+                                })
+        
+        return jsonify({
+            'game_day': game_day,
+            'underperformers': underperformers,
+            'total_underperformers': len(underperformers)
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in get_game_day_underperformers: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/player_underperformance_count', methods=['POST'])
+def get_player_underperformance_count():
+    """Get how many times selected players performed below their average"""
+    try:
+        data = request.get_json()
+        player_names = data.get('players', [])
+        
+        if not player_names:
+            return jsonify({'error': 'No players selected'}), 400
+        
+        df = load_and_process_data()
+        df['DateOnly'] = df['Date'].dt.date
+        
+        results = {}
+        
+        for player_name in player_names:
+            # Get all games for this player
+            player_stats = get_player_stats(df, player_name)
+            
+            if player_stats.empty:
+                results[player_name] = {
+                    'total_games': 0,
+                    'underperformance_count': 0,
+                    'underperformance_percentage': 0.0,
+                    'details': []
+                }
+                continue
+            
+            # Calculate overall average
+            avg_points = float(player_stats['points'].mean())
+            avg_rebounds = float(player_stats['rebounds'].mean())
+            avg_assists = float(player_stats['assists'].mean())
+            
+            threshold_percentage = 0.15
+            underperformance_games = []
+            
+            for _, row in player_stats.iterrows():
+                points = safe_float(row['points'])
+                rebounds = safe_float(row['rebounds'])
+                assists = safe_float(row['assists'])
+                
+                is_underperforming = False
+                reasons = []
+                
+                if points < avg_points * (1 - threshold_percentage):
+                    is_underperforming = True
+                    reasons.append(f"Points: {points:.1f} vs {avg_points:.1f} avg")
+                
+                if rebounds < avg_rebounds * (1 - threshold_percentage):
+                    is_underperforming = True
+                    reasons.append(f"Rebounds: {rebounds:.1f} vs {avg_rebounds:.1f} avg")
+                
+                if assists < avg_assists * (1 - threshold_percentage):
+                    is_underperforming = True
+                    reasons.append(f"Assists: {assists:.1f} vs {avg_assists:.1f} avg")
+                
+                if is_underperforming:
+                    underperformance_games.append({
+                        'date': row['date'],
+                        'team': row['team'],
+                        'opponent': row['opponent'],
+                        'points': float(points),
+                        'rebounds': float(rebounds),
+                        'assists': float(assists),
+                        'reasons': reasons
+                    })
+            
+            total_games = len(player_stats)
+            underperformance_count = len(underperformance_games)
+            
+            results[player_name] = {
+                'total_games': total_games,
+                'underperformance_count': underperformance_count,
+                'underperformance_percentage': float(round((underperformance_count / total_games * 100) if total_games > 0 else 0, 1)),
+                'avg_points': avg_points,
+                'avg_rebounds': avg_rebounds,
+                'avg_assists': avg_assists,
+                'details': underperformance_games
+            }
+        
+        return jsonify({'results': results})
+    
+    except Exception as e:
+        logger.error(f"Error in get_player_underperformance_count: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))

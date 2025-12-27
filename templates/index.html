@@ -64,7 +64,12 @@
 </head>
 <body class="min-h-screen">
     <div class="container mx-auto px-4 py-8">
-        <h1 class="text-5xl font-bold text-center mb-8 fade-in">🏀 NBA Stats Analyzer</h1>
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-5xl font-bold fade-in">🏀 NBA Stats Analyzer</h1>
+            <a href="/game_day_analyzer" class="bg-white text-purple-600 px-6 py-3 rounded-lg hover:bg-gray-100 transition-colors font-semibold shadow-lg z-10 relative">
+                📊 Game Day Analyzer
+            </a>
+        </div>
         <p class="text-center text-white mb-8 text-lg opacity-90">Advanced analytics for team performance and player insights</p>
         
         <!-- Team Comparison Section -->
@@ -114,6 +119,24 @@
             </div>
         </div>
 
+        <!-- League Top Players Section -->
+        <div class="card p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">🏆 League Top 12 Players (PRA)</h2>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Number of Games</label>
+                <select id="league-num-games" class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="3">Last 3 Games</option>
+                    <option value="5" selected>Last 5 Games</option>
+                    <option value="10">Last 10 Games</option>
+                    <option value="15">Last 15 Games</option>
+                </select>
+            </div>
+            <button onclick="loadLeagueTopPlayers()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors mb-4">
+                Load Top 12 Players
+            </button>
+            <div id="league-top-players-list" class="space-y-2"></div>
+        </div>
+
         <!-- Player Analysis Section -->
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-xl font-bold mb-4">Player Analysis</h2>
@@ -137,6 +160,8 @@
                             <canvas id="player1-chart"></canvas>
                         </div>
                         <div id="player1-prediction" class="mb-4"></div>
+                        <div id="player1-combined-stats" class="mb-4"></div>
+                        <div id="player1-custom-line" class="mb-4"></div>
                         <div class="mt-4">
                             <h4 class="text-lg font-semibold mb-2">Recent Games</h4>
                             <div id="player1-games-list" class="space-y-2"></div>
@@ -162,6 +187,8 @@
                             <canvas id="player2-chart"></canvas>
                         </div>
                         <div id="player2-prediction" class="mb-4"></div>
+                        <div id="player2-combined-stats" class="mb-4"></div>
+                        <div id="player2-custom-line" class="mb-4"></div>
                         <div class="mt-4">
                             <h4 class="text-lg font-semibold mb-2">Recent Games</h4>
                             <div id="player2-games-list" class="space-y-2"></div>
@@ -563,49 +590,32 @@
                 
                 // Update prediction
                 const predictionDiv = document.getElementById(`player${playerNum}-prediction`);
+                const combinedStatsDiv = document.getElementById(`player${playerNum}-combined-stats`);
+                const customLineDiv = document.getElementById(`player${playerNum}-custom-line`);
+                const bettingInsights = data.betting_insights || {};
+                const opponentAnalysis = data.opponent_analysis || {};
+                const homeAwaySplits = data.home_away_splits || {};
+                
                 predictionDiv.innerHTML = `
                     <div class="mb-4">
-                        <h4 class="text-lg font-semibold mb-2">Game Averages</h4>
+                        <h4 class="text-lg font-semibold mb-2">Game Averages & Predictions</h4>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white p-3 rounded-lg shadow">
-                            <p class="text-sm text-gray-600">Minutes</p>
-                            <p class="text-2xl font-bold text-orange-600">${data.averages.minutes.toFixed(1)}</p>
-                            ${data.predictions.minutes ? `
-                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.minutes.prediction.toFixed(1)}</p>
-                                <p class="text-xs text-gray-400">Range: ${data.predictions.minutes.lower_bound.toFixed(1)} - ${data.predictions.minutes.upper_bound.toFixed(1)}</p>
-                                ${data.predictions.minutes.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
-                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
-                        </div>
-                        <div class="bg-white p-3 rounded-lg shadow">
-                            <p class="text-sm text-gray-600">Points</p>
-                            <p class="text-2xl font-bold text-blue-600">${data.averages.points.toFixed(1)}</p>
-                            ${data.predictions.points ? `
-                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.points.prediction.toFixed(1)}</p>
-                                <p class="text-xs text-gray-400">Range: ${data.predictions.points.lower_bound.toFixed(1)} - ${data.predictions.points.upper_bound.toFixed(1)}</p>
-                                ${data.predictions.points.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
-                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
-                        </div>
-                        <div class="bg-white p-3 rounded-lg shadow">
-                            <p class="text-sm text-gray-600">Rebounds</p>
-                            <p class="text-2xl font-bold text-green-600">${data.averages.rebounds.toFixed(1)}</p>
-                            ${data.predictions.rebounds ? `
-                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.rebounds.prediction.toFixed(1)}</p>
-                                <p class="text-xs text-gray-400">Range: ${data.predictions.rebounds.lower_bound.toFixed(1)} - ${data.predictions.rebounds.upper_bound.toFixed(1)}</p>
-                                ${data.predictions.rebounds.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
-                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
-                        </div>
-                        <div class="bg-white p-3 rounded-lg shadow">
-                            <p class="text-sm text-gray-600">Assists</p>
-                            <p class="text-2xl font-bold text-purple-600">${data.averages.assists.toFixed(1)}</p>
-                            ${data.predictions.assists ? `
-                                <p class="text-sm text-gray-500">Prediction: ${data.predictions.assists.prediction.toFixed(1)}</p>
-                                <p class="text-xs text-gray-400">Range: ${data.predictions.assists.lower_bound.toFixed(1)} - ${data.predictions.assists.upper_bound.toFixed(1)}</p>
-                                ${data.predictions.assists.limited_data ? '<p class="text-xs text-red-500">*Limited data available</p>' : ''}
-                            ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
-                        </div>
+                        ${renderStatCard('Minutes', data.averages.minutes, data.predictions.minutes, 'orange', bettingInsights.minutes)}
+                        ${renderStatCard('Points', data.averages.points, data.predictions.points, 'blue', bettingInsights.points)}
+                        ${renderStatCard('Rebounds', data.averages.rebounds, data.predictions.rebounds, 'green', bettingInsights.rebounds)}
+                        ${renderStatCard('Assists', data.averages.assists, data.predictions.assists, 'purple', bettingInsights.assists)}
                     </div>
+                    ${renderBettingInsights(bettingInsights)}
+                    ${renderOpponentAnalysis(opponentAnalysis)}
+                    ${renderHomeAwaySplits(homeAwaySplits)}
                 `;
+                
+                // Render combined stats
+                combinedStatsDiv.innerHTML = renderCombinedStats(data.averages, data.predictions, bettingInsights);
+                
+                // Render custom line calculator
+                customLineDiv.innerHTML = renderCustomLineCalculator(player, playerNum);
 
                 // Update recent games list
                 const gamesListDiv = document.getElementById(`player${playerNum}-games-list`);
@@ -667,6 +677,355 @@
             1: null,
             2: null
         };
+
+        function renderStatCard(label, average, prediction, color, betting) {
+            const colorClasses = {
+                'orange': 'text-orange-600',
+                'blue': 'text-blue-600',
+                'green': 'text-green-600',
+                'purple': 'text-purple-600'
+            };
+            const colorClass = colorClasses[color] || 'text-gray-600';
+            const trend = prediction?.trend || 'stable';
+            const trendIcon = trend === 'improving' ? '📈' : trend === 'declining' ? '📉' : '➡️';
+            const confidence = prediction?.confidence || 0;
+            const confidenceColor = confidence > 0.7 ? 'text-green-600' : confidence > 0.5 ? 'text-yellow-600' : 'text-red-600';
+            
+            return `
+                <div class="bg-white p-3 rounded-lg shadow hover:shadow-lg transition-shadow">
+                    <p class="text-sm text-gray-600">${label}</p>
+                    <p class="text-2xl font-bold ${colorClass}">${average.toFixed(1)}</p>
+                    ${prediction ? `
+                        <p class="text-sm text-gray-500 mt-1">
+                            Prediction: <span class="font-semibold">${prediction.prediction.toFixed(1)}</span> ${trendIcon}
+                        </p>
+                        <p class="text-xs text-gray-400">
+                            Range: ${prediction.lower_bound.toFixed(1)} - ${prediction.upper_bound.toFixed(1)}
+                        </p>
+                        <p class="text-xs ${confidenceColor} font-semibold mt-1">
+                            Confidence: ${(confidence * 100).toFixed(0)}%
+                        </p>
+                        ${prediction.limited_data ? '<p class="text-xs text-red-500">*Limited data</p>' : ''}
+                    ` : '<p class="text-sm text-gray-400">No prediction available</p>'}
+                </div>
+            `;
+        }
+
+        function renderBettingInsights(bettingInsights) {
+            if (!bettingInsights || Object.keys(bettingInsights).length === 0) {
+                return '';
+            }
+            
+            let html = '<div class="mt-6 bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-lg border border-indigo-200">';
+            html += '<h4 class="text-lg font-semibold mb-3 text-indigo-800">🎯 Betting Insights</h4>';
+            
+            for (const [statType, insights] of Object.entries(bettingInsights)) {
+                if (!insights) continue;
+                
+                html += `<div class="mb-4">`;
+                html += `<h5 class="font-semibold text-gray-700 mb-2 capitalize">${statType}</h5>`;
+                
+                // Value rating and risk level
+                if (insights.value_rating !== undefined) {
+                    const riskColor = insights.risk_level === 'low' ? 'text-green-600' : 
+                                    insights.risk_level === 'medium' ? 'text-yellow-600' : 'text-red-600';
+                    html += `<div class="flex gap-4 mb-2 text-sm">`;
+                    html += `<span>Value Rating: <span class="font-bold">${insights.value_rating}%</span></span>`;
+                    html += `<span>Risk: <span class="font-bold ${riskColor}">${insights.risk_level.toUpperCase()}</span></span>`;
+                    html += `</div>`;
+                }
+                
+                // Recommended bet
+                if (insights.recommended_bet) {
+                    const bet = insights.recommended_bet;
+                    html += `<div class="bg-white p-3 rounded border-l-4 border-green-500 mb-2">`;
+                    html += `<p class="font-semibold text-green-700">⭐ Recommended Bet</p>`;
+                    html += `<p class="text-sm">${bet.direction.toUpperCase()} ${bet.line} ${statType}</p>`;
+                    html += `<p class="text-xs text-gray-600">Probability: ${(bet.probability * 100).toFixed(1)}% | Edge: ${bet.edge}%</p>`;
+                    html += `</div>`;
+                }
+                
+                // Over/Under probabilities
+                if (insights.over_under_probabilities) {
+                    html += `<div class="text-xs space-y-1">`;
+                    html += `<p class="font-semibold text-gray-600 mb-1">Over/Under Probabilities:</p>`;
+                    for (const [line, probs] of Object.entries(insights.over_under_probabilities)) {
+                        const overValue = probs.value_over ? '⭐' : '';
+                        const underValue = probs.value_under ? '⭐' : '';
+                        html += `<div class="flex justify-between bg-white px-2 py-1 rounded">`;
+                        html += `<span>O/U ${line}:</span>`;
+                        html += `<span>Over ${(probs.over * 100).toFixed(0)}% ${overValue} | Under ${(probs.under * 100).toFixed(0)}% ${underValue}</span>`;
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                }
+                
+                html += `</div>`;
+            }
+            
+            html += '</div>';
+            return html;
+        }
+
+        function renderOpponentAnalysis(opponentAnalysis) {
+            if (!opponentAnalysis || Object.keys(opponentAnalysis).length === 0) {
+                return '';
+            }
+            
+            let html = '<div class="mt-4 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 rounded-lg border border-blue-200">';
+            html += '<h4 class="text-lg font-semibold mb-3 text-blue-800">🏀 Opponent Analysis</h4>';
+            html += '<div class="space-y-2 text-sm">';
+            
+            for (const [opponent, stats] of Object.entries(opponentAnalysis)) {
+                const matchupClass = stats.best_matchup ? 'text-green-600' : stats.worst_matchup ? 'text-red-600' : 'text-gray-600';
+                const matchupIcon = stats.best_matchup ? '🔥' : stats.worst_matchup ? '❄️' : '➡️';
+                html += `<div class="bg-white p-2 rounded flex justify-between items-center">`;
+                html += `<div>`;
+                html += `<span class="font-semibold ${matchupClass}">${opponent} ${matchupIcon}</span>`;
+                html += `<span class="text-xs text-gray-500 ml-2">(${stats.games} games)</span>`;
+                html += `</div>`;
+                html += `<div class="text-xs text-gray-600">`;
+                html += `PTS: ${stats.avg_points} | REB: ${stats.avg_rebounds} | AST: ${stats.avg_assists}`;
+                html += `</div>`;
+                html += `</div>`;
+            }
+            
+            html += '</div></div>';
+            return html;
+        }
+
+        function renderCombinedStats(averages, predictions, bettingInsights) {
+            const combinedStats = [
+                { key: 'points_assists', label: 'Points + Assists', color: 'blue', avg: averages.points_assists, pred: predictions.points_assists, insights: bettingInsights.points_assists },
+                { key: 'points_rebounds', label: 'Points + Rebounds', color: 'green', avg: averages.points_rebounds, pred: predictions.points_rebounds, insights: bettingInsights.points_rebounds },
+                { key: 'assists_rebounds', label: 'Assists + Rebounds', color: 'purple', avg: averages.assists_rebounds, pred: predictions.assists_rebounds, insights: bettingInsights.assists_rebounds },
+                { key: 'points_rebounds_assists', label: 'Points + Rebounds + Assists (PRA)', color: 'indigo', avg: averages.points_rebounds_assists, pred: predictions.points_rebounds_assists, insights: bettingInsights.points_rebounds_assists }
+            ];
+            
+            let html = '<div class="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 p-4 rounded-lg border border-yellow-200">';
+            html += '<h4 class="text-lg font-semibold mb-3 text-orange-800">📊 Combined Stats Predictions</h4>';
+            html += '<div class="grid grid-cols-2 gap-4">';
+            
+            for (const stat of combinedStats) {
+                if (!stat.avg && !stat.pred) continue;
+                
+                const trend = stat.pred?.trend || 'stable';
+                const trendIcon = trend === 'improving' ? '📈' : trend === 'declining' ? '📉' : '➡️';
+                const confidence = stat.pred?.confidence || 0;
+                const confidenceColor = confidence > 0.7 ? 'text-green-600' : confidence > 0.5 ? 'text-yellow-600' : 'text-red-600';
+                
+                html += `<div class="bg-white p-3 rounded-lg shadow">`;
+                html += `<p class="text-sm font-semibold text-gray-700 mb-1">${stat.label}</p>`;
+                html += `<p class="text-xl font-bold text-${stat.color}-600">${stat.avg.toFixed(1)}</p>`;
+                if (stat.pred) {
+                    html += `<p class="text-xs text-gray-500 mt-1">Pred: ${stat.pred.prediction.toFixed(1)} ${trendIcon}</p>`;
+                    html += `<p class="text-xs ${confidenceColor}">Confidence: ${(confidence * 100).toFixed(0)}%</p>`;
+                }
+                if (stat.insights?.recommended_bet) {
+                    const bet = stat.insights.recommended_bet;
+                    html += `<p class="text-xs text-green-600 mt-1 font-semibold">⭐ ${bet.direction.toUpperCase()} ${bet.line} (${bet.edge}% edge)</p>`;
+                }
+                html += `</div>`;
+            }
+            
+            html += '</div></div>';
+            return html;
+        }
+
+        function renderCustomLineCalculator(playerName, playerNum) {
+            const statTypes = [
+                { value: 'points', label: 'Points' },
+                { value: 'points_assists', label: 'Points + Assists' },
+                { value: 'points_rebounds', label: 'Points + Rebounds' },
+                { value: 'assists_rebounds', label: 'Assists + Rebounds' },
+                { value: 'points_rebounds_assists', label: 'Points + Rebounds + Assists (PRA)' }
+            ];
+            
+            let html = '<div class="mt-6 bg-gradient-to-r from-pink-50 to-rose-50 p-4 rounded-lg border border-pink-200">';
+            html += '<h4 class="text-lg font-semibold mb-3 text-pink-800">🎯 Custom Line Calculator</h4>';
+            html += '<div class="bg-white p-4 rounded-lg">';
+            html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">';
+            html += '<div>';
+            html += '<label class="block text-sm font-medium text-gray-700 mb-2">Stat Type</label>';
+            html += `<select id="custom-stat-${playerNum}" class="w-full p-2 border rounded-lg">`;
+            for (const stat of statTypes) {
+                html += `<option value="${stat.value}">${stat.label}</option>`;
+            }
+            html += `</select>`;
+            html += `</div>`;
+            html += '<div>';
+            html += '<label class="block text-sm font-medium text-gray-700 mb-2">Line</label>';
+            html += `<input type="number" id="custom-line-${playerNum}" class="w-full p-2 border rounded-lg" placeholder="Enter line" min="0" step="0.5">`;
+            html += `</div>`;
+            html += '<div class="flex items-end">';
+            html += `<button onclick="calculateCustomLine('${playerName}', ${playerNum})" class="w-full bg-pink-600 text-white px-4 py-2 rounded-lg hover:bg-pink-700 transition-colors">Calculate</button>`;
+            html += `</div>`;
+            html += `</div>`;
+            html += `<div id="custom-line-result-${playerNum}" class="mt-4"></div>`;
+            html += `</div></div>`;
+            return html;
+        }
+
+        async function calculateCustomLine(playerName, playerNum) {
+            const statType = document.getElementById(`custom-stat-${playerNum}`).value;
+            const line = parseFloat(document.getElementById(`custom-line-${playerNum}`).value);
+            const resultDiv = document.getElementById(`custom-line-result-${playerNum}`);
+            
+            if (!line || line <= 0) {
+                resultDiv.innerHTML = '<div class="text-red-600 text-sm">Please enter a valid line</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="text-gray-600 text-sm">Calculating...</div>';
+            
+            try {
+                const response = await fetch('/calculate_custom_line', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        player_name: playerName,
+                        stat_type: statType,
+                        line: line
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to calculate');
+                }
+                
+                const probOver = (data.probability_over * 100).toFixed(1);
+                const probUnder = (data.probability_under * 100).toFixed(1);
+                const confidenceColor = data.confidence_level === 'Very High' ? 'text-green-600' : 
+                                      data.confidence_level === 'High' ? 'text-blue-600' : 
+                                      data.confidence_level === 'Moderate' ? 'text-yellow-600' : 'text-red-600';
+                const recColor = data.recommendation === 'OVER' ? 'text-green-600' : 
+                               data.recommendation === 'UNDER' ? 'text-red-600' : 'text-gray-600';
+                
+                resultDiv.innerHTML = `
+                    <div class="bg-white p-4 rounded-lg border-2 border-pink-300">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-semibold">Line: ${line}</span>
+                            <span class="text-sm ${confidenceColor} font-bold">${data.confidence_level} Confidence</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-3">
+                            <div class="text-center p-2 bg-green-50 rounded">
+                                <p class="text-xs text-gray-600">Probability OVER</p>
+                                <p class="text-xl font-bold text-green-600">${probOver}%</p>
+                            </div>
+                            <div class="text-center p-2 bg-red-50 rounded">
+                                <p class="text-xs text-gray-600">Probability UNDER</p>
+                                <p class="text-xl font-bold text-red-600">${probUnder}%</p>
+                            </div>
+                        </div>
+                        <div class="text-center p-3 bg-gray-50 rounded">
+                            <p class="text-xs text-gray-600 mb-1">Prediction: ${data.prediction}</p>
+                            <p class="text-lg font-bold ${recColor}">Recommendation: ${data.recommendation}</p>
+                            <p class="text-xs text-gray-500 mt-1">Edge: ${data.edge}%</p>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="text-red-600 text-sm">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function loadLeagueTopPlayers() {
+            const nGames = parseInt(document.getElementById('league-num-games').value) || 5;
+            const listDiv = document.getElementById('league-top-players-list');
+            
+            listDiv.innerHTML = '<div class="text-gray-500 text-center py-4">Loading...</div>';
+            
+            try {
+                const response = await fetch('/league_top_players', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ n_games: nGames })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load league top players');
+                }
+                
+                if (!data.top_players || data.top_players.length === 0) {
+                    listDiv.innerHTML = '<div class="text-gray-500 text-center py-4">No data available</div>';
+                    return;
+                }
+                
+                let html = '<div class="overflow-x-auto">';
+                html += '<table class="min-w-full text-sm">';
+                html += '<thead class="bg-gray-100">';
+                html += '<tr>';
+                html += '<th class="px-4 py-2 text-left">Rank</th>';
+                html += '<th class="px-4 py-2 text-left">Player</th>';
+                html += '<th class="px-4 py-2 text-left">Team</th>';
+                html += '<th class="px-4 py-2 text-right">Avg PRA</th>';
+                html += '<th class="px-4 py-2 text-right">Avg PTS</th>';
+                html += '<th class="px-4 py-2 text-right">Avg REB</th>';
+                html += '<th class="px-4 py-2 text-right">Avg AST</th>';
+                html += '<th class="px-4 py-2 text-right">Games</th>';
+                html += '</tr>';
+                html += '</thead>';
+                html += '<tbody>';
+                
+                data.top_players.forEach((player, index) => {
+                    const rankColor = index < 3 ? 'font-bold text-yellow-600' : index < 6 ? 'font-semibold text-gray-700' : 'text-gray-600';
+                    html += '<tr class="border-b hover:bg-gray-50">';
+                    html += `<td class="px-4 py-2 ${rankColor}">${index + 1}</td>`;
+                    html += `<td class="px-4 py-2 font-medium">${player.player}</td>`;
+                    html += `<td class="px-4 py-2 text-gray-600">${player.team}</td>`;
+                    html += `<td class="px-4 py-2 text-right font-bold text-indigo-600">${player.avg_pra.toFixed(1)}</td>`;
+                    html += `<td class="px-4 py-2 text-right">${player.avg_points.toFixed(1)}</td>`;
+                    html += `<td class="px-4 py-2 text-right">${player.avg_rebounds.toFixed(1)}</td>`;
+                    html += `<td class="px-4 py-2 text-right">${player.avg_assists.toFixed(1)}</td>`;
+                    html += `<td class="px-4 py-2 text-right text-gray-500">${player.games_played}</td>`;
+                    html += '</tr>';
+                });
+                
+                html += '</tbody>';
+                html += '</table>';
+                html += '</div>';
+                
+                listDiv.innerHTML = html;
+            } catch (error) {
+                console.error('Error:', error);
+                listDiv.innerHTML = `<div class="text-red-600 text-center py-4">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderHomeAwaySplits(homeAwaySplits) {
+            if (!homeAwaySplits || Object.keys(homeAwaySplits).length === 0) {
+                return '';
+            }
+            
+            let html = '<div class="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-lg border border-green-200">';
+            html += '<h4 class="text-lg font-semibold mb-3 text-green-800">🏠 Home/Away Splits</h4>';
+            html += '<div class="grid grid-cols-2 gap-4 text-sm">';
+            
+            if (homeAwaySplits.home) {
+                html += `<div class="bg-white p-3 rounded">`;
+                html += `<p class="font-semibold text-green-700 mb-2">🏠 Home (${homeAwaySplits.home.games} games)</p>`;
+                html += `<p>PTS: ${homeAwaySplits.home.avg_points}</p>`;
+                html += `<p>REB: ${homeAwaySplits.home.avg_rebounds}</p>`;
+                html += `<p>AST: ${homeAwaySplits.home.avg_assists}</p>`;
+                html += `</div>`;
+            }
+            
+            if (homeAwaySplits.away) {
+                html += `<div class="bg-white p-3 rounded">`;
+                html += `<p class="font-semibold text-blue-700 mb-2">✈️ Away (${homeAwaySplits.away.games} games)</p>`;
+                html += `<p>PTS: ${homeAwaySplits.away.avg_points}</p>`;
+                html += `<p>REB: ${homeAwaySplits.away.avg_rebounds}</p>`;
+                html += `<p>AST: ${homeAwaySplits.away.avg_assists}</p>`;
+                html += `</div>`;
+            }
+            
+            html += '</div></div>';
+            return html;
+        }
 
         function updatePlayerChart(data, playerNum) {
             const ctx = document.getElementById(`player${playerNum}-chart`).getContext('2d');
