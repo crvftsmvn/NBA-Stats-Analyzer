@@ -162,11 +162,12 @@
                     currentDayIndex = 0;
                     populateGameDaySelect();
                     populateTeamSelect(teamsData.teams);
-                    
-                    // Explicitly set the select value to the first (most recent) day
+
+                    // Explicitly set the select value to ensure it's correct
                     const select = document.getElementById('game-day-select');
                     select.value = gameDays[0];
-                    
+                    currentDayIndex = 0;
+
                     loadGameDay();
                 } else {
                     populateGameDaySelect();
@@ -199,16 +200,18 @@
         function populateGameDaySelect() {
             const select = document.getElementById('game-day-select');
             select.innerHTML = '';
-            
+
             gameDays.forEach((day, index) => {
                 const option = document.createElement('option');
                 option.value = day;
                 option.textContent = formatDate(day);
-                if (index === currentDayIndex) {
-                    option.selected = true;
-                }
                 select.appendChild(option);
             });
+
+            // Set the selected value after populating all options
+            if (gameDays.length > 0 && currentDayIndex >= 0 && currentDayIndex < gameDays.length) {
+                select.value = gameDays[currentDayIndex];
+            }
         }
 
         function formatDate(dateStr) {
@@ -487,7 +490,7 @@
 
         function goToFirstDay() {
             if (gameDays.length > 0) {
-                currentDayIndex = gameDays.length - 1; // Last day is the first chronologically
+                currentDayIndex = gameDays.length - 1; // Last index is the chronologically first (oldest) day
                 document.getElementById('game-day-select').value = gameDays[currentDayIndex];
                 loadGameDay();
             }
